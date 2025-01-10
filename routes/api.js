@@ -1,7 +1,11 @@
 'use strict';
-const bcrypt = require('bcrypt')
+const bcrypt = require('bcrypt');
+const { ObjectId } = require('mongodb');
+
+const { organizeThreadReplies, organizeThreads } = require('../utils/utils');
 
 const SALT = process.env.SALT || 12;
+
 
 module.exports = function (app, collection) {
 
@@ -16,16 +20,7 @@ module.exports = function (app, collection) {
         if (err) {
           return res.json({ error: 'could not get threads' }).status(500);
         }
-        // sort by bumped_on
-        data.sort((a, b) => b.bumped_on - a.bumped_on);
-        // get only 10 most recent threads
-        data = data.slice(0, 10);
-        // get only 3 most recent replies for each thread
-        data.forEach(thread => {
-          thread.replycount = thread.replies.length;
-          thread.replies.sort((a, b) => b.created_on - a.created_on);
-          thread.replies = thread.replies.slice(0, 3);
-        });
+        data = organizeThreads(data);
         res.json(data);
       });
     })
@@ -113,6 +108,10 @@ module.exports = function (app, collection) {
       });
     });
 
-  app.route('/api/replies/:board');
+  app.route('/api/replies/:board')
+    .get((req, res) => { })
+    .put((req, res) => { })
+    .post((req, res) => { })
+    .delete((req, res) => { });
 
 };
