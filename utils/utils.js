@@ -4,6 +4,10 @@ const organizeThreadReplies = (replies) => {
   ret.replycount = replies.length;
   ret.replies.sort((a, b) => b.created_on - a.created_on);
   ret.replies = ret.replies.slice(0, 3);
+  for (var i = 0; i < ret.replies.length; i++) {
+    delete ret.replies[i].delete_password;
+    delete ret.replies[i].reported;
+  }
   return ret;
 }
 

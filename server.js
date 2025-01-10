@@ -16,13 +16,8 @@ const client = new MongoClient(MONGODB_URI, { useNewUrlParser: true, useUnifiedT
 
 const app = express();
 
-app.use(
-  helmet({
-    referrerPolicy: {
-      policy: ["origin", "unsafe-url"],
-    },
-  })
-);
+app.use(helmet());
+app.use(helmet.referrerPolicy({ policy: 'same-origin' }));
 
 app.use('/public', express.static(process.cwd() + '/public'));
 

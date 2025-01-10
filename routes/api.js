@@ -25,27 +25,15 @@ module.exports = function (app, thread_collection, reply_collection) {
         }
         // sort and limit threads
         data = organizeThreads(data);
-        // add reply datas
-        let error = false;
-        data.forEach(thread => {
-          reply_collection.find(
-            { board: board, thread_id: thread._id },
-            { projection: { delete_password: 0, reported: 0 } }
-          ).toArray((err, replies) => {
-            if (err) {
-              error = true;
-            }
-            const replies_data = organizeThreadReplies(replies);
-            thread.replies = replies_data.replies;
-            thread.replycount = replies_data.replycount;
-          });
+        console.log(data);
+        // sort and limit replies
+        data.forEach((thread) => {
+          const replies_data = organizeThreadReplies(thread.replies);
+          thread.replies = replies_data.replies;
+          thread.replycount = replies_data.replycount;
         });
-        if (error) {
-          return res.json({ error: 'could not get replies' }).status(500);
-        }
-        res.json(data);
-      })
-      return res;
+        return res.json(data);
+      });
     })
 
     // report thread
@@ -63,7 +51,7 @@ module.exports = function (app, thread_collection, reply_collection) {
           if (!data.value) {
             return res.json({ error: 'thread not found' }).status(404);
           }
-          res.json({ success: 'thread reported' });
+          res.send('reported');
         }
       )
 
@@ -90,7 +78,8 @@ module.exports = function (app, thread_collection, reply_collection) {
         delete_password: bcrypt.hashSync(delete_password, SALT),
         created_on: new Date(),
         bumped_on: new Date(),
-        reported: false
+        reported: false,
+        replies: []
       };
 
       console.log(thread);
@@ -111,9 +100,7 @@ module.exports = function (app, thread_collection, reply_collection) {
       const board = req.params.board;
       const thread_id = req.body.thread_id;
       const delete_password = req.body.delete_password;
-      if (!board || !thread_id || !delete_password) {
-        return res.json({ error: 'missing required fields' }).status(400);
-      }
+
       thread_collection.findOne({ _id: ObjectId(thread_id) }, (err, data) => {
         if (err) {
           return res.json({ error: 'could not find thread' }).status(404);
@@ -122,13 +109,13 @@ module.exports = function (app, thread_collection, reply_collection) {
           return res.json({ error: 'thread not found' }).status(404);
         }
         if (!bcrypt.compareSync(delete_password, data.delete_password)) {
-          return res.json({ error: 'incorrect password' }).status(400);
+          return res.send('incorrect password').status(400);
         }
         thread_collection.deleteOne({ _id: ObjectId(thread_id) }, (err, data) => {
           if (err) {
             return res.json({ error: 'could not delete thread' }).status(500);
           }
-          res.json({ success: 'thread deleted' });
+          res.send('success')
         });
       });
 
@@ -138,46 +125,76 @@ module.exports = function (app, thread_collection, reply_collection) {
   app.route('/api/replies/:board')
     // get replies
     .get((req, res) => {
+      console.log('GET /api/replies/:board');
+
       const board = req.params.board;
       const thread_id = req.query.thread_id;
-      if (!board || !thread_id) {
-        return res.json({ error: 'missing required fields' }).status(400);
-      }
-      reply_collection.find(
-        { board: board, thread_id: thread_id },
+
+      thread_collection.find(
+        { _id: ObjectId(thread_id), board: board },
         { projection: { delete_password: 0, reported: 0 } }
       ).toArray((err, data) => {
         if (err) {
           return res.json({ error: 'could not get replies' }).status(500);
         }
-        res.json(data);
+        if (!data[0]) {
+          return res.json({ error: 'thread not found' }).status(404);
+        }
+        const thread = data[0];
+        for (var i = 0; i < thread.replies.length; i++) {
+          delete thread.replies[i].delete_password;
+          delete thread.replies[i].reported;
+        }
+        return res.json(thread);
       });
-
-      return res;
     })
 
     // report reply
     .put((req, res) => {
+      console.log('PUT /api/replies/:board');
 
+      const board = req.params.board;
+      const thread_id = req.body.thread_id;
+      const reply_id = req.body.reply_id;
+
+      thread_collection.findOne({ _id: ObjectId(thread_id) }, (err, data) => {
+        if (err) {
+          return res.json({ error: 'could not find thread' }).status(404);
+        }
+        if (!data) {
+          return res.json({ error: 'thread not found' }).status(404);
+        }
+        const reply = data.replies.find((reply) => reply._id == reply_id);
+        if (!reply) {
+          return res.json({ error: 'reply not found' }).status(404);
+        }
+        reply.reported = true;
+        thread_collection.findOneAndUpdate({ _id: data.id }, { $set: { replies: data.replies } }, (err, data) => {
+          if (err) {
+            return res.json({ error: 'could not report reply' }).status(500);
+          }
+          res.send('reported');
+        });
+
+      });
 
       return res;
     })
 
     // create reply
     .post((req, res) => {
+      console.log('POST /api/replies/:board');
+
       // check required fields
       const board = req.params.board;
       const thread_id = req.body.thread_id;
       const text = req.body.text;
       // why tf front send this as plain text?
       const delete_password = req.body.delete_password;
-      if (!board || !thread_id || !text || !delete_password) {
-        return res.json({ error: 'missing required fields' }).status(400);
-      }
 
-      // create new thread
+      // create new reply
       const reply = {
-        board: board,
+        _id: new ObjectId(),
         text: text,
         delete_password: bcrypt.hashSync(delete_password, SALT),
         created_on: new Date(),
@@ -187,17 +204,56 @@ module.exports = function (app, thread_collection, reply_collection) {
       console.log(reply);
 
       // save thread
-      thread_collection.insertOne(reply, (err, data) => {
-        if (err) {
-          return res.json({ error: 'could not save reply' }).status(500);
+      thread_collection.findOneAndUpdate(
+        { _id: ObjectId(thread_id), board: board },
+        { $push: { replies: reply }, $set: { bumped_on: reply.created_on } },
+        (err, data) => {
+          if (err) {
+            return res.json({ error: 'could not save reply' }).status(500);
+          }
+          if (!data.value) {
+            return res.json({ error: 'thread not found' }).status(404);
+          }
+          return res.redirect(`/b/${board}/${thread_id}`);
         }
-        res.redirect(`/b/${board}/${thread_id}`);
-      });
+      );
 
       return res;
     })
 
     // delete reply
-    .delete((req, res) => { });
+    .delete((req, res) => {
+      console.log('DELETE /api/replies/:board');
+
+      const thread_id = req.body.thread_id;
+      const reply_id = req.body.reply_id;
+      const delete_password = req.body.delete_password;
+
+      thread_collection.findOne({ _id: ObjectId(thread_id) }, (err, data) => {
+        if (err) {
+          return res.json({ error: 'could not find thread' }).status(404);
+        }
+        if (!data) {
+          return res.json({ error: 'thread not found' }).status(404);
+        }
+        const reply = data.replies.find((reply) => reply._id == reply_id);
+        if (!reply) {
+          return res.json({ error: 'reply not found' }).status(404);
+        }
+        if (!bcrypt.compareSync(delete_password, reply.delete_password)) {
+          return res.send('incorrect password').status(400);
+        }
+        data.replies = data.replies.map((reply) => { if (reply._id == reply_id) { reply.text = '[deleted]' }; return reply; });
+        console.log(data);
+        thread_collection.findOneAndUpdate({ _id: data._id }, { $set: { replies: data.replies } }, (err, data) => {
+          if (err) {
+            return res.json({ error: 'could not delete reply' }).status(500);
+          }
+          res.send('success');
+        });
+      });
+
+      return res;
+    });
 
 };
