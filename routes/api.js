@@ -12,7 +12,7 @@ module.exports = function (app, thread_collection, reply_collection) {
   app.route('/api/threads/:board')
 
     // get thread
-    .get((req, res) => {
+    .get(async (req, res) => {
       console.log('GET /api/threads/:board');
 
       const board = req.params.board;
@@ -26,27 +26,30 @@ module.exports = function (app, thread_collection, reply_collection) {
         // sort and limit threads
         data = organizeThreads(data);
         // add reply datas
+        let error = false;
         data.forEach(thread => {
           reply_collection.find(
             { board: board, thread_id: thread._id },
             { projection: { delete_password: 0, reported: 0 } }
           ).toArray((err, replies) => {
             if (err) {
-              return res.json({ error: 'could not get replies' }).status(500);
+              error = true;
             }
             const replies_data = organizeThreadReplies(replies);
             thread.replies = replies_data.replies;
             thread.replycount = replies_data.replycount;
           });
-          res.json(data);
         });
+        if (error) {
+          return res.json({ error: 'could not get replies' }).status(500);
+        }
+        res.json(data);
       })
-
       return res;
     })
 
     // report thread
-    .put((req, res) => {
+    .put(async (req, res) => {
       console.log('PUT /api/threads/:board');
       const board = req.params.board;
       const thread_id = req.body.thread_id;
@@ -95,11 +98,10 @@ module.exports = function (app, thread_collection, reply_collection) {
       // save thread
       thread_collection.insertOne(thread, (err, data) => {
         if (err) {
-          res.json({ error: 'could not save thread' }).status(500);
+          return res.json({ error: 'could not save thread' }).status(500);
         }
-        res.redirect(`/b/${board}`);
+        return res.redirect(`/b/${board}`);
       });
-
       return res;
     })
 

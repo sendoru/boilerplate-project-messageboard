@@ -1,5 +1,6 @@
 const organizeThreadReplies = (replies) => {
-  var ret = JSON.parse(JSON.stringify(replies));
+  var ret = {};
+  ret.replies = JSON.parse(JSON.stringify(replies));
   ret.replycount = replies.length;
   ret.replies.sort((a, b) => b.created_on - a.created_on);
   ret.replies = ret.replies.slice(0, 3);
