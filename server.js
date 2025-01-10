@@ -11,7 +11,7 @@ const fccTestingRoutes = require('./routes/fcctesting.js');
 const runner = require('./test-runner');
 
 const MONGODB_URI = process.env.MONGODB_URI;
-const client = new MongoClient(MONGODB_URI, { useNewUrlParser: true, useUnifiedTopology: true });
+const client = new MongoClient(MONGODB_URI);
 
 const app = express();
 
@@ -39,7 +39,8 @@ app.route('/')
   });
 
 client.connect().then(() => {
-  const collection = client.db('database').collection('messageboard');
+  console.log('Connected to MongoDB');
+  const collection = client.db('database').collection('message-board');
   //For FCC testing purposes
   fccTestingRoutes(app);
 
