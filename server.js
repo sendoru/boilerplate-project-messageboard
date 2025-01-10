@@ -55,7 +55,7 @@ client.connect().then(() => {
   fccTestingRoutes(app);
 
   //Routing for API 
-  apiRoutes(app, thread_collection);
+  apiRoutes(app, thread_collection, reply_collection);
 
   //404 Not Found Middleware
   app.use(function (req, res, next) {
