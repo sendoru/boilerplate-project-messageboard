@@ -7,7 +7,7 @@ const { organizeThreadReplies, organizeThreads } = require('../utils/utils');
 const SALT = process.env.SALT || 12;
 
 
-module.exports = function (app, collection) {
+module.exports = function (app, thread_collection, reply_collection) {
 
   app.route('/api/threads/:board')
 
@@ -16,13 +16,33 @@ module.exports = function (app, collection) {
       console.log('GET /api/threads/:board');
 
       const board = req.params.board;
-      collection.find({ board: board }).toArray((err, data) => {
+      thread_collection.find(
+        { board: board },
+        { projection: { delete_password: 0, reported: 0 } }
+      ).toArray((err, data) => {
         if (err) {
           return res.json({ error: 'could not get threads' }).status(500);
         }
+        // sort and limit threads
         data = organizeThreads(data);
-        res.json(data);
-      });
+        // add reply datas
+        data.forEach(thread => {
+          reply_collection.find(
+            { board: board, thread_id: thread._id },
+            { projection: { delete_password: 0, reported: 0 } }
+          ).toArray((err, replies) => {
+            if (err) {
+              return res.json({ error: 'could not get replies' }).status(500);
+            }
+            const replies_data = organizeThreadReplies(replies);
+            thread.replies = replies_data.replies;
+            thread.replycount = replies_data.replycount;
+          });
+          res.json(data);
+        });
+      })
+
+      return res;
     })
 
     // report thread
@@ -30,7 +50,7 @@ module.exports = function (app, collection) {
       console.log('PUT /api/threads/:board');
       const board = req.params.board;
       const thread_id = req.body.thread_id;
-      collection.findOneAndUpdate(
+      thread_collection.findOneAndUpdate(
         { _id: ObjectId(thread_id), board: board },
         { $set: { reported: true } },
         (err, data) => {
@@ -43,6 +63,8 @@ module.exports = function (app, collection) {
           res.json({ success: 'thread reported' });
         }
       )
+
+      return res;
     })
 
     // create thread
@@ -63,7 +85,6 @@ module.exports = function (app, collection) {
         board: board,
         text: text,
         delete_password: bcrypt.hashSync(delete_password, SALT),
-        replies: [],
         created_on: new Date(),
         bumped_on: new Date(),
         reported: false
@@ -72,12 +93,14 @@ module.exports = function (app, collection) {
       console.log(thread);
 
       // save thread
-      collection.insertOne(thread, (err, data) => {
+      thread_collection.insertOne(thread, (err, data) => {
         if (err) {
-          return res.json({ error: 'could not save thread' }).status(500);
+          res.json({ error: 'could not save thread' }).status(500);
         }
         res.redirect(`/b/${board}`);
       });
+
+      return res;
     })
 
     // delete thread
@@ -89,7 +112,7 @@ module.exports = function (app, collection) {
       if (!board || !thread_id || !delete_password) {
         return res.json({ error: 'missing required fields' }).status(400);
       }
-      collection.findOne({ _id: ObjectId(thread_id) }, (err, data) => {
+      thread_collection.findOne({ _id: ObjectId(thread_id) }, (err, data) => {
         if (err) {
           return res.json({ error: 'could not find thread' }).status(404);
         }
@@ -99,19 +122,80 @@ module.exports = function (app, collection) {
         if (!bcrypt.compareSync(delete_password, data.delete_password)) {
           return res.json({ error: 'incorrect password' }).status(400);
         }
-        collection.deleteOne({ _id: ObjectId(thread_id) }, (err, data) => {
+        thread_collection.deleteOne({ _id: ObjectId(thread_id) }, (err, data) => {
           if (err) {
             return res.json({ error: 'could not delete thread' }).status(500);
           }
           res.json({ success: 'thread deleted' });
         });
       });
+
+      return res;
     });
 
   app.route('/api/replies/:board')
-    .get((req, res) => { })
-    .put((req, res) => { })
-    .post((req, res) => { })
+    // get replies
+    .get((req, res) => {
+      const board = req.params.board;
+      const thread_id = req.query.thread_id;
+      if (!board || !thread_id) {
+        return res.json({ error: 'missing required fields' }).status(400);
+      }
+      reply_collection.find(
+        { board: board, thread_id: thread_id },
+        { projection: { delete_password: 0, reported: 0 } }
+      ).toArray((err, data) => {
+        if (err) {
+          return res.json({ error: 'could not get replies' }).status(500);
+        }
+        res.json(data);
+      });
+
+      return res;
+    })
+
+    // report reply
+    .put((req, res) => {
+
+
+      return res;
+    })
+
+    // create reply
+    .post((req, res) => {
+      // check required fields
+      const board = req.params.board;
+      const thread_id = req.body.thread_id;
+      const text = req.body.text;
+      // why tf front send this as plain text?
+      const delete_password = req.body.delete_password;
+      if (!board || !thread_id || !text || !delete_password) {
+        return res.json({ error: 'missing required fields' }).status(400);
+      }
+
+      // create new thread
+      const reply = {
+        board: board,
+        text: text,
+        delete_password: bcrypt.hashSync(delete_password, SALT),
+        created_on: new Date(),
+        reported: false
+      };
+
+      console.log(reply);
+
+      // save thread
+      thread_collection.insertOne(reply, (err, data) => {
+        if (err) {
+          return res.json({ error: 'could not save reply' }).status(500);
+        }
+        res.redirect(`/b/${board}/${thread_id}`);
+      });
+
+      return res;
+    })
+
+    // delete reply
     .delete((req, res) => { });
 
 };
